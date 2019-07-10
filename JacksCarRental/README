@@ -1,0 +1,3 @@
+Exercise 4.2, otherwise known as Jack's Car Rental.
+
+Currently scaling is n^5.5 where n is the number of cars.  Which is terrible.  But, the solution appears reasonable.
