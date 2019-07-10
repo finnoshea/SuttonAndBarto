@@ -110,65 +110,6 @@ class JacksCarRental(object):
         """
         return (math.exp(-1*average) * average ** n) / math.factorial(n)
 
-    def joint_poisson(self,m,n,u,v):
-        """
-        Computes the joint probability of 4 independent Poisson-distributed
-        events: that there will be m rental requests at lot 0, that there will
-        be n rental requests at lot 1, that there will be u returns at lot 0,
-        and that there will be v returns at lot 1.
-
-        Parameters
-        ----------
-        m : int
-            The number of rental requests at lot 0.
-        n : int
-            The number of rental requests at lot 1.
-        u : int
-            The number of returns to lot 0
-        v : int
-            The number of returns to lot 1
-
-        Returns
-        -------
-        float
-            The probability of the events occuring jointly.
-
-        """
-        avg_rentals_one = 3
-        avg_rentals_two = 4
-        avg_returns_one = 3
-        avg_returns_two = 2
-        return self.poisson(avg_rentals_one,m) * \
-               self.poisson(avg_rentals_two,n) * \
-               self.poisson(avg_returns_one,u) * \
-               self.poisson(avg_returns_two,v)
-
-    def norm_poi(self,average=5,max_n=5,n=5):
-        """
-        Compute the probability drawn from a poisson distribution that is
-        normalized such that the sum of probabilities up to max_n is 1. This is
-        required for the Markov Decision Process formalism.
-
-        The normalization has a closed form that uses incomplete and complete
-        gamma functions.  Just do the sum.
-
-        Parameters
-        ----------
-        average : float
-            The mean number of whatever event over a large interval.
-        max_n : int
-            The maximum allowed value for the sampling of the distribution.
-        n : int
-            The number of events for which to compute the probability.
-
-        Returns
-        -------
-        A probability between 0 and 1 (inclusive).
-        """
-        norm = sum([(average ** nn / math.factorial(nn)) \
-                    for nn in range(max_n+1)])
-        return (average ** n) / (norm * math.factorial(n))
-
     def iterative_policy_eval(self,tolerance=1e-3,verbose=False):
         """
         Performs iterative policy evaluation following the Sutton and Barto
@@ -209,7 +150,7 @@ class JacksCarRental(object):
             print('Policy Evaluation has converged.')
         return V
 
-    def enumerate_final_states(self,s,a):
+    def enumerate_final_states(self,s,a,max_random=11):
         """
         Computes the final states for a given initial state and action. The
         order of events is:
@@ -224,6 +165,10 @@ class JacksCarRental(object):
         a : int
             The action to be taken: the number of cars moved from lot 0 to lot 1
             negative numbers are valid.
+        max_random : int
+            The maximum value to use in the poisson distributions, since the
+            problem has lambda = 4 at maximum, max_random = 11 by default and
+            Poisson(11,4) < 0.002.
 
         Returns
         -------
@@ -235,17 +180,17 @@ class JacksCarRental(object):
         s = self.key_convert(self.take_action(s,a)) # move cars
         final_states = {}
         norm = 0 # normalization constant
-        for m in range(self.num_cars+1): # rental requests at lot 0
+        for m in range(max_random+1): # rental requests at lot 0
             pm = self.poisson(3,m) # probability of m rental requests
             if m > s[0]: # more rental requests than cars
                 m = s[0] # rent out all the cars
-            for n in range(self.num_cars+1): # rental requests at lot 1
+            for n in range(max_random+1): # rental requests at lot 1
                 pn = self.poisson(4,n)
                 if n > s[1]: # more rental requests than cars
                     n = s[1] # rent out all the cars
-                for u in range(self.num_cars+1): # cars returned at lot 0
+                for u in range(max_random+1): # cars returned at lot 0
                     pu = self.poisson(3,u)
-                    for v in range(self.num_cars+1): # cars returned at lot 1
+                    for v in range(max_random+1): # cars returned at lot 1
                         pv = self.poisson(2,v)
                         p = pm * pn * pu * pv
                         sp = [s[0] - m + u, s[1] - n + v]
@@ -273,37 +218,6 @@ class JacksCarRental(object):
             final_states[key][0] = final_states[key][0] / norm
 
         return final_states
-
-
-    def sum_over_r(self,state,state_value,action):
-        """
-        Performs the sum over reward (r) in the formula for iterative policy
-        evaluation.
-
-        Parameters
-        ----------
-        state : str
-            The state, s', for which the sum over r is being performed.
-        statve_value: float
-            The value of the state s'.
-        action: int
-            The action taken to arrive at state s'.
-
-        Returns
-        -------
-        A value to add to V(s) as given in the formula.
-
-        """
-        temp_V = 0
-        max_m,max_n = map(int,state.split(',')) # max cars to rent
-        # enumerate the ways cars can be rented
-        for way in self.enumerate_car_rentals(state): # perform the sum over r
-            m,n = map(int,way.split(','))
-            temp_V += self.norm_poi(3,max_m,m) * \
-                     self.norm_poi(4,max_n,n) * \
-                     (self.compute_reward(m,n,action) +
-                      self.gamma * state_value)
-        return temp_V
 
     def policy_update(self,is_stable,verbose=False):
         """
@@ -478,30 +392,6 @@ class JacksCarRental(object):
         move_cost = 2
         return base_reward * (m + n) - move_cost * abs(a)
 
-    def enumerate_car_rentals(self,state):
-        """
-        Enumerates the number of ways that cars can be rented given the state.
-        If the state is 'm,n' there are (m+1)*(n+1) ways cars can be rented.
-
-        Example: state = '2,1'
-        Returns: ['0,0', '0,1', '1,0', '1,1', '2,0', '2,1']
-
-        Parameters
-        ----------
-        state : str
-            The state of the two rental lots.
-
-        Returns
-        -------
-        A list of strings of the ways cars can be rented.
-        """
-        ways = []
-        state = self.key_convert(state)
-        for im in range(state[0]+1):
-            for jn in range(state[1]+1):
-                ways += [str(im)+','+str(jn)]
-        return ways
-
     @staticmethod
     def argmax(dictionary):
         """
@@ -538,8 +428,8 @@ class JacksCarRental(object):
             array[loc[0]][loc[1]] = value
         fig,ax = plt.subplots(1)
         pict = ax.imshow(array,origin='lower')
-        ax.set_xlabel('# of cars in first location')
-        ax.set_ylabel('# of cars in second location')
+        ax.set_ylabel('# of cars in first location')
+        ax.set_xlabel('# of cars in second location')
         ax.set_title(title)
         ax.set_xticks([x for x in range(self.num_cars + 1)])
         ax.set_yticks([x for x in range(self.num_cars + 1)])
@@ -554,18 +444,77 @@ class JacksCarRental(object):
         """
         # initialize the array
         array = [[0 for _ in range(self.num_cars + 1)] for _ in
-                                        range(self.num_cars + 1)]
+                             range(self.num_cars + 1)]
         for key,value in self.states.items():
             loc = self.key_convert(key)
             array[loc[0]][loc[1]] = value
-            fig,ax = plt.subplots(1)
-            pict = ax.imshow(array,origin='lower')
-            ax.set_xlabel('# of cars in first location')
-            ax.set_ylabel('# of cars in second location')
-            ax.set_title(title)
-            ax.set_xticks([x for x in range(self.num_cars + 1)])
-            ax.set_yticks([x for x in range(self.num_cars + 1)])
-            ax.set_yticklabels([str(x) for x in range(self.num_cars + 1)])
-            ax.set_xticklabels([str(x) for x in range(self.num_cars + 1)])
-            fig.colorbar(pict, ax=ax)
-            plt.show(block=False)
+        fig,ax = plt.subplots(1)
+        pict = ax.imshow(array,origin='lower')
+        ax.set_ylabel('# of cars in first location')
+        ax.set_xlabel('# of cars in second location')
+        ax.set_title(title)
+        ax.set_xticks([x for x in range(self.num_cars + 1)])
+        ax.set_yticks([x for x in range(self.num_cars + 1)])
+        ax.set_yticklabels([str(x) for x in range(self.num_cars + 1)])
+        ax.set_xticklabels([str(x) for x in range(self.num_cars + 1)])
+        fig.colorbar(pict, ax=ax)
+        plt.show(block=False)
+
+    def load_states_and_policies(self,filename='twenty_car_results.hdf5'):
+        """
+        Uses h5py to load states and policies from an HDF5 file.
+        WARNING: this method overwrites self.states and self.policies
+
+        Parameters
+        ----------
+        filename : str
+            Filename used in opening the HDF5 file.
+
+        Returns
+        -------
+        Nothing.  self.states and self.policies are modified in place.
+
+        """
+        import h5py
+        with h5py.File(filename,'r') as f:
+            print('Notes:')
+            print(f.attrs['notes'])
+            # HDF5 requires byte-strings, convert them to python3 strings
+            labels = [str(x,'utf-8') for x in f['state_labels'][:].tolist()]
+            states = f['state_values'][:]
+            policies = f['state_policies'][:]
+        self.states = {}
+        for k,v in zip(labels,states):
+            self.states[k] = v
+        self.policies = {}
+        for k,v in zip(labels,policies):
+            self.policies[k] = v
+
+    def save_states_and_policies(self,filename='jacksCarRental.hdf5',notes=''):
+        """
+        Uses h5py to save states and policies from a run.  Will overwrite the
+        values in the file.
+
+        Parameters
+        ----------
+        filename : str
+            What to name the HDF5 file.
+        notes : str
+            Notes string to add to the HDF5 file as an attribute.
+
+        Returns
+        -------
+        Nothing.
+
+        """
+        import h5py
+        with h5py.File(filename,'w') as f:
+            f.attrs['notes'] = notes
+            # encode the strings as ascii, HDF5 format requires this
+            f.create_dataset('state_labels',
+                data=[x.encode("ascii", "ignore") for x in self.states.keys()])
+            f.create_dataset('state_values',
+                data=[self.states[key] for key in self.states.keys()])
+            f.create_dataset('state_policies',
+                data=[self.policies[key] for key in self.states.keys()])
+        print('Data saved.')
