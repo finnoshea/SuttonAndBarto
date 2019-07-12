@@ -1,0 +1,7 @@
+Solution to the Gambler's Problem in Sutton and Barto
+
+To use:
+t = GamblersProblem(ph=0.4)
+t.value_iteration()
+t.plot_states()
+t.plot_policies()
