@@ -15,7 +15,13 @@ class JacksCarRental(object):
 
     def __init__(self,num_cars=None):
         """
+        Class for solving Example 4.2 in Sutton and Barto.
 
+        Use:
+        t = JacksCarRental(num_cars=10)
+        t.policy_improvement(True) # True means verbose solution
+        t.plot_policy()
+        t.plot_states()
         """
         # hardcode some problem features
         self.gamma = 0.9 # discount rate
