@@ -4,7 +4,7 @@ class TicTacToe() is the game board for tic-tac-toe
 
 class EpsGreedyTTTAgent() is a player that uses Monte Carlo to update action-values and learns an epsilon-greedy policy with fixed epsilon.
 class EpsGreedyDecayTTTAgent() is a player that uses Monte Carlo to update the action-values and learn an epsilon-greedy policy that starts with a larger epislon and decays to a fixed, smaller epsilon.
-class EpsGreedyDecayQAgent() is the same as EpsGreedyDecayTTTAgent, but it uses Q-learning.
+class EpsGreedyDecayQAgent() is the same as EpsGreedyDecayTTTAgent, but it uses TD(0) learning that waits for epsisode end.
 
 class TTTenv() creates a simple environment for agents to play each other or a human to play an agent.
 class TTTournament() creates a tournament of agents that play each other.
