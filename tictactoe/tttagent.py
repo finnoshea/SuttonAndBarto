@@ -413,7 +413,7 @@ class EpsGreedyDecayTTTAgent(EpsGreedyTTTAgent):
 
 class EpsGreedyDecayQAgent(EpsGreedyTTTAgent):
     """
-    
+
     """
 
     def __init__(self,learning_rate=0.5,
@@ -498,7 +498,9 @@ class EpsGreedyDecayQAgent(EpsGreedyTTTAgent):
     def update_action_value(self,state,action,reward,next_state,next_action):
         """
         Updates the Q(s,a) value for the given state and action using
-        Q-learning.
+        TD(0) update.  It still waits until the end of an epside, so it can
+        use a similar learn_from_game method that the Monte Carlo learner does.
+        This will slow learning a little bit.
 
         Parameters
         ----------
