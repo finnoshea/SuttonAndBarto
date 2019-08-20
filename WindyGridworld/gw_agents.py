@@ -55,8 +55,8 @@ class epsilonGreedyAgent(object):
         -------
         An agent with knowledge of only the starting state of the girdworld.
         """
-        return {self.gw.start_loc : \
-                    self.enumeratePossibleActions(self.gw.start_loc)}
+        return {self.gw.current_loc : \
+                    self.enumeratePossibleActions(self.gw.current_loc)}
 
     def reInitAgent(self):
         """
@@ -181,6 +181,22 @@ class epsilonGreedyAgent(object):
         return self.epsilon * sum(vals) / len(vals) + \
                 (1 - self.epsilon) * max(vals)
 
+    def stateVisitCount(self,state):
+        """
+        Counts how many times a state was visited by counting how many times it
+        was left.
+
+        Parameters
+        ----------
+        state : tuple of two integers
+            The position on the game board to be evaluated.
+        """
+        try:
+            vals = [x[1] for x in self.agent[state].values()]
+        except KeyError:
+            raise KeyError('Invalid state supplied to expectedStateValue.')
+        return sum(vals)
+
     def returnGreedyPolicy(self,state):
         """
         Returns the action with the highest value for the given state.
@@ -201,6 +217,21 @@ class epsilonGreedyAgent(object):
                 max_val = t[1]
                 max_key = t[0]
         return max_key
+
+    def findGreedyPath(self):
+        """
+        Find a path from start to goal using absolutely greedy move selection.
+        """
+        path = [self.gw.start_loc]
+        move = self.returnGreedyPolicy(path[-1])
+        new_loc = self.gw.validMove(move,path[-1])
+        while new_loc not in path:
+            path.append(new_loc)
+            if new_loc == self.gw.goal_loc:
+                break
+            move = self.returnGreedyPolicy(path[-1])
+            new_loc = self.gw.validMove(move,path[-1])
+        return path
 
     def checkForState(self,state):
         """
@@ -234,6 +265,15 @@ class epsilonGreedyAgent(object):
         """
         sum_r = sum([x[-1] for x in self.history])
         return (len(self.history) - 1, sum_r)
+
+    def printActionState(self):
+        """
+        Outputs the contents of the agent's action-state values.  If the
+        gridworld the agent was trained on was large, the output of this command
+        can be very large.
+        """
+        for k,v in self.agent.items():
+            print('State: ',k,' Actions: ',v)
 
     def saveAgent(self,location='agents'):
         """
