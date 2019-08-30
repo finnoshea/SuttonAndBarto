@@ -5,7 +5,8 @@ world problems of chapter 6 of Sutton and Barto.
 """
 
 from gridworld import gridWorld, kingWorld, windyGridWorld, windyKingWorld
-from gw_agents import sarsaAgent, QAgent, expectedsarsaAgent
+#  from gw_agents import sarsaAgent, QAgent, expectedSarsaAgent
+from gw_agents import nStepSarsaAgent, nStepQAgent, nStepExpectedSarsaAgent
 import matplotlib.pyplot as plt
 
 
@@ -14,8 +15,9 @@ class GWEnv(object):
 
     """
     def __init__(self,gridworld=gridWorld,size=(7,10),start_loc=(3,0),
-                 goal_loc=(3,7),random_start=True,max_moves=None,agent=QAgent,
-                 alpha=0.5,epsilon=0.1,discount=1.0,name=None):
+                 goal_loc=(3,7),random_start=True,max_moves=None,
+                 agent=nStepQAgent,n=1,alpha=0.5,epsilon=0.1,
+                 discount=1.0,name=None):
         """
         An environment where the agent learns on gridworld.
 
@@ -34,6 +36,8 @@ class GWEnv(object):
         max_moves : int
             The maximum number of allowed moves before the episode is forced to
             end.  Default is None.
+        n : int, optional
+            The number of steps to look foward when computing state values.
         alpha : float, optional
             The step size parameter for learning.
         epsilon : float, optional
@@ -50,10 +54,22 @@ class GWEnv(object):
         """
         # create an environment
         gw = gridworld.__call__(size,start_loc,goal_loc,max_moves)
-        self.agent = agent.__call__(gw,alpha,epsilon,discount,name)
+        self.agent = agent.__call__(gridworld=gw,
+                                    n=n,
+                                    alpha=alpha,
+                                    epsilon=epsilon,
+                                    discount=discount,
+                                    name=name)
 
         # summary_stats is a list of tuples (steps,total reward) for all the
         # episodes seen during this instance of the environment
+        self.summary_stats = []
+
+    def reInitEnv(self):
+        """
+        Reinitializes the environment and the agent.
+        """
+        self.agent.clearAgent()
         self.summary_stats = []
 
     def runEpisode(self):
@@ -79,6 +95,7 @@ class GWEnv(object):
         iter = 0
         while iter < n:
             self.runEpisode()
+            iter += 1
 
     def runNTimeSteps(self,n=8000):
         """
@@ -180,18 +197,25 @@ class GWEnv(object):
             top=False,         # ticks along the top edge are off
             labelleft=False,   # labels along the left edge are off
             labelbottom=False) # labels along the bottom edge are off
-        if self.agent.gw.wind_cols:
+        try: # add wind values to the plot if they exist
             for x,c in enumerate(self.agent.gw.wind_cols):
                 plt.text(x,-0.75,str(c))
-        if self.agent.gw.wind_rows:
             for y,c in enumerate(self.agent.gw.wind_rows):
                 plt.text(-0.75,y,str(c))
+        except AttributeError:
+            pass
         plt.title('Greedy path steps: {:d}'.format(len(greedy_path)-1))
         plt.show()
 
 if __name__ == "__main__":
-    t = GWEnv(gridworld=windyKingWorld,agent=QAgent,max_moves=None)
+    # t = GWEnv(gridworld=windyKingWorld,agent=QAgent,max_moves=None)
+    # t.runNTimeSteps(n=8000)
+    # t.plotEpisodesVsTimeSteps()
+    # t.plotGreedyPath()
+    # t.plotStateValues()
+
+    t = GWEnv(gridworld=gridWorld,agent=nStepExpectedSarsaAgent,max_moves=None,
+              n=1,random_start=False)
     t.runNTimeSteps(n=8000)
     t.plotEpisodesVsTimeSteps()
     t.plotGreedyPath()
-    t.plotStateValues()

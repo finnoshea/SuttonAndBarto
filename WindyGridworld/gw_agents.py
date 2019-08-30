@@ -14,7 +14,7 @@ class epsilonGreedyAgent(object):
     """
 
     """
-    def __init__(self,gridworld,epsilon=0.1,discount=1.0,name=None):
+    def __init__(self,gridworld,alpha=0.5,epsilon=0.1,discount=1.0,name=None):
         """
         An epsilon-greedy base agent class.  The agent saves action-state value
         pairs as a nested dictionary of the form:
@@ -25,6 +25,8 @@ class epsilonGreedyAgent(object):
         ----------
         gridworld : a gridworld object
             A pointer to a gridworld object that the agent can interact with.
+        alpha : float, optional
+            The step size parameter for learning.
         epsilon : float, optional
             A value between [0,1] for the fraction of play decisions that should
             result in a random choice of any of the possible moves.
@@ -37,6 +39,7 @@ class epsilonGreedyAgent(object):
             unique as it is randomly generated.
         """
         self.gw = gridworld
+        self.alpha = alpha
         self.epsilon = epsilon
         self.discount = discount
         if not name:
@@ -65,6 +68,13 @@ class epsilonGreedyAgent(object):
         self.gw.initGridWorld()
         self.history = []
 
+    def clearAgent(self):
+        """
+        Clears the agent's memory and history, and resets the gridWorld.
+        """
+        self.agent = self._makeNewAgent()
+        self.reInitAgent()
+
     def enumeratePossibleActions(self,state=None):
         """
         Enumerates the allowed actions given a state.
@@ -92,11 +102,6 @@ class epsilonGreedyAgent(object):
         Picks an action from a given state using the epsilon-greedy algorithm.
 
         This is the agent's policy.  It is an epsilon-greedy policy.
-
-        Parameters
-        ----------
-        state : tuple
-            A location on grid world.
 
         Returns
         -------
@@ -250,7 +255,23 @@ class epsilonGreedyAgent(object):
 
     def updateQ(self):
         """
-        Stub function for replacement by different type learning agents.
+        Perform an update of the agent. The type of update is controlled by the
+        finalQ function.
+        """
+        if len(self.history) < 2:
+            return # not enough history yet
+        S = self.history[-2][0]
+        A = self.history[-2][1]
+        R = self.history[-2][2]
+        self.agent[S][A][0] += self.alpha * (R + \
+                                    self.discount * self.finalQ() - \
+                                    self.agent[S][A][0])
+        self.agent[S][A][1] += 1 # update the visit count
+
+    def finalQ(self):
+        """
+        Stub function for the final state of a single step update.  It is
+        implemented by the various agent types (child classes).
         """
         pass
 
@@ -315,16 +336,23 @@ class epsilonGreedyAgent(object):
             for key,value in f.attrs.items(): # grab the other attributes
                 self.__setattr__(key,value)
 
-class sarsaAgent(epsilonGreedyAgent):
-    def __init__(self,gridworld,alpha=0.1,epsilon=0.1,discount=1.0,name=None):
+class nStepEpsilonGreedyAgent(epsilonGreedyAgent):
+    """
+
+    """
+    def __init__(self,gridworld,n=1,alpha=0.5,epsilon=0.1,discount=1.0,name=None):
         """
-        An agent that learns using the SARSA scheme and epsilson-greedy
-        behavior.
+        An epsilon-greedy base agent class.  The agent saves action-state value
+        pairs as a nested dictionary of the form:
+        {{'state0':{'action0':value,'action1':value...}},
+         {'state1':{'action0':value,'action1':value...}}...}
 
         Parameters
         ----------
         gridworld : a gridworld object
             A pointer to a gridworld object that the agent can interact with.
+        n : int, optional
+            The number of steps to look foward when computing state values.
         alpha : float, optional
             The step size parameter for learning.
         epsilon : float, optional
@@ -338,113 +366,223 @@ class sarsaAgent(epsilonGreedyAgent):
             will be created.  There is no guarantee that this name will be
             unique as it is randomly generated.
         """
-        super().__init__(gridworld,epsilon,discount,name)
-        self.alpha = alpha # update step size
+        super().__init__(gridworld=gridworld,
+                         alpha=alpha,
+                         epsilon=epsilon,
+                         discount=discount,
+                         name=name)
+        self.n = n
+        self.update_step = 0 # the next step in the history to update
 
-    def updateQ(self):
+    def reInitAgent(self):
         """
-        Perform a SARSA update of the agent. See Sutton and Barto page 130.
+        Reinitializes the agent to have a clear history.
+        """
+        super().reInitAgent()
+        self.update_step = 0
 
-        Q(S,A) = Q(S,A) + alpha*[R + gamma*Q(S',A') - Q(S,A)]
+    def takeAction(self):
         """
-        if len(self.history) < 2:
-            return # not enough history yet
-        S = self.history[-2][0]
-        A = self.history[-2][1]
-        R = self.history[-2][2]
+        Picks an action from a given state using the epsilon-greedy algorithm.
+
+        This is the agent's policy.  It is an epsilon-greedy policy.
+
+        Returns
+        -------
+        The action the agents wants to take.
+        """
+        # check that state is in action-state dictionary
+        self.checkForState(self.gw.getCurrentLoc())
+        # if a uniform comes up bigger than epsilon, exploit
+        if uniform(0,1) > self.epsilon:
+            move = self.exploit(self.gw.getCurrentLoc())
+            not_terminal, SAR = self.gw.makeMove(move)
+        else: # otherwise, explore
+            move = self.explore(self.gw.getCurrentLoc())
+            not_terminal, SAR = self.gw.makeMove(move)
+        # update history and learn
+        if SAR:
+            self.history.append(SAR)
+            was_updated = self.updateQ(True) # always a non-terminal update
+            if was_updated:
+                self.update_step += 1
+        # if you reached the terminal state
+        if not not_terminal:
+            self.checkForState(self.gw.getCurrentLoc())
+            self.history.append((self.gw.getCurrentLoc(),0,0))
+            while self.update_step < len(self.history):
+                was_updated = self.updateQ(False) # always a terminal update
+                if was_updated:
+                    self.update_step += 1
+        return not_terminal
+
+    def updateQ(self,not_terminal):
+        """
+        Perform an n-step update of the agent using the final action-state given
+        by finalQ.
+
+        Parameters
+        ----------
+        not_terminal : bool
+            Flag that is True when the agent has not yet reached the terminal
+            state.
+
+        Returns
+        -------
+        True if S,A is updated, False if no state is updated.
+        """
+        if len(self.history) < self.n + 1 and not_terminal:
+            return False # not enough history yet
+        S = self.history[self.update_step][0]
+        A = self.history[self.update_step][1]
+        G_n = self.computeReward() # this is G_n = R
+        if self.update_step + self.n < len(self.history):
+            val_discount = self.discount ** self.n
+            G_n += val_discount * self.finalQ() # add in discount * end-Q
+        # update the action-state value
+        self.agent[S][A][0] += self.alpha * (G_n - self.agent[S][A][0])
+        self.agent[S][A][1] += 1 # update the visit count
+        return True
+
+    def computeReward(self):
+        """
+        Computes the rewards accumulated and discounted along an n-step path
+        from self.update_step.  If the n steps is longer than the available
+        history, the rewards are computed up to the end of history.
+
+        Returns
+        -------
+        The computed reward.
+        """
+        if self.update_step + self.n < len(self.history):
+            return sum([self.history[self.update_step+k][2] * self.discount ** k
+                     for k in range(self.n)])
+        else: # nearing the end of the history
+            return sum([self.history[self.update_step+k][2] * self.discount ** k
+                     for k in range(len(self.history) - self.update_step - 1)])
+
+#################################################
+# SARSA Agents
+#################################################
+class sarsaAgent(epsilonGreedyAgent):
+    """
+    An agent that learns using the SARSA scheme and epsilson-greedy
+    policy.
+    """
+
+    @staticmethod
+    def __str__():
+        return "SARSA Agent"
+
+    def finalQ(self):
+        """
+        Sarsa agent final action-state for a single step update.
+
+        Returns
+        -------
+        Q(S',A') for a single step update.
+        """
         Sp = self.history[-1][0]
         Ap = self.history[-1][1]
-        self.agent[S][A][0] += self.alpha * (R + \
-                                    self.discount * self.agent[Sp][Ap][0] - \
-                                    self.agent[S][A][0])
-        self.agent[S][A][1] += 1 # update the visit count
+        return self.agent[Sp][Ap][0]
 
+class nStepSarsaAgent(nStepEpsilonGreedyAgent):
+    """
+    An agent that learns using the n-step SARSA scheme and epsilson-greedy
+    policy.
+    """
+
+    @staticmethod
+    def __str__():
+        return "n-SARSA Agent"
+
+    def finalQ(self):
+        """
+        Sarsa agent final action-state for a single step update.
+
+        Returns
+        -------
+        Q(S',A') for a single step update.
+        """
+        Sp = self.history[self.update_step + self.n][0]
+        Ap = self.history[self.update_step + self.n][1]
+        return self.agent[Sp][Ap][0]
+
+#################################################
+# Q-learning Agents
+#################################################
 class QAgent(epsilonGreedyAgent):
-    def __init__(self,gridworld,alpha=0.1,epsilon=0.1,discount=1.0,name=None):
-        """
-        An agent that learns using the Q-learning scheme and epsilson-greedy
-        behavior.
+    """
+    An agent that learns using the Q-learning scheme and epsilson-greedy
+    policy.
+    """
 
-        Parameters
-        ----------
-        gridworld : a gridworld object
-            A pointer to a gridworld object that the agent can interact with.
-        alpha : float, optional
-            The step size parameter for learning.
-        epsilon : float, optional
-            A value between [0,1] for the fraction of play decisions that should
-            result in a random choice of any of the possible moves.
-        discount : float, optional
-            How much to discount rewards from the future.  Called gamma in the
-            literature by Sutton and Barto.
-        name : str, optional
-            A name for the agent.  If no name is given, a random 8-digit name
-            will be created.  There is no guarantee that this name will be
-            unique as it is randomly generated.
-        """
-        super().__init__(gridworld,epsilon,discount,name)
-        self.alpha = alpha # update step size
+    @staticmethod
+    def __str__():
+        return "Q Agent"
 
-    def updateQ(self):
+    def finalQ(self):
         """
-        Perform a SARSA update of the agent. See Sutton and Barto page 130.
+        Q-learning agent final action-state for a single step update.
 
-        Q(S,A) = Q(S,A) + alpha*[R + gamma* max Q(S',a) - Q(S,A)]
+        Returns
+        -------
+        max_a Q(S',a) for a single step update.
         """
-        if len(self.history) < 2:
-            return # not enough history yet
-        S = self.history[-2][0]
-        A = self.history[-2][1]
-        R = self.history[-2][2]
         Sp = self.history[-1][0]
         max_val = self.agent[Sp][0][0] # find the maximum Q(S',A')
         for val in self.agent[Sp].values():
             if val[0] > max_val:
                 max_val = val[0]
-        self.agent[S][A][0] += self.alpha * (R + \
-                                    self.discount * max_val - \
-                                    self.agent[S][A][0])
-        self.agent[S][A][1] += 1 # update the visit count
+        return max_val
 
-class expectedsarsaAgent(epsilonGreedyAgent):
-    def __init__(self,gridworld,alpha=0.1,epsilon=0.1,discount=1.0,name=None):
-        """
-        An agent that learns using the expected SARSA scheme and epsilson-greedy
-        behavior.
+class nStepQAgent(nStepEpsilonGreedyAgent):
+    """
+    An agent that learns using the n-step Q-learning scheme and epsilson-greedy
+    policy.
+    """
 
-        Parameters
-        ----------
-        gridworld : a gridworld object
-            A pointer to a gridworld object that the agent can interact with.
-        alpha : float, optional
-            The step size parameter for learning.
-        epsilon : float, optional
-            A value between [0,1] for the fraction of play decisions that should
-            result in a random choice of any of the possible moves.
-        discount : float, optional
-            How much to discount rewards from the future.  Called gamma in the
-            literature by Sutton and Barto.
-        name : str, optional
-            A name for the agent.  If no name is given, a random 8-digit name
-            will be created.  There is no guarantee that this name will be
-            unique as it is randomly generated.
-        """
-        super().__init__(gridworld,epsilon,discount,name)
-        self.alpha = alpha # update step size
+    @staticmethod
+    def __str__():
+        return "n-Q Agent"
 
-    def updateQ(self):
+    def finalQ(self):
         """
-        Perform a SARSA update of the agent. See Sutton and Barto page 130.
+        Q-learning agent final action-state for a single step update.
 
-        Q(S,A) = Q(S,A) + alpha*[R + gamma* max Q(S',a) - Q(S,A)]
+        Returns
+        -------
+        max_a Q(S',a) for a single step update.
         """
-        if len(self.history) < 2:
-            return # not enough history yet
-        S = self.history[-2][0]
-        A = self.history[-2][1]
-        R = self.history[-2][2]
+        Sp = self.history[self.update_step + self.n][0]
+        max_val = self.agent[Sp][0][0] # find the maximum Q(S',A')
+        for val in self.agent[Sp].values():
+            if val[0] > max_val:
+                max_val = val[0]
+        return max_val
+
+#################################################
+# Expected SARSA Agents
+#################################################
+class expectedSarsaAgent(epsilonGreedyAgent):
+    """
+    An agent that learns using the Expected SARSA scheme and epsilson-greedy
+    policy.
+    """
+
+    @staticmethod
+    def __str__():
+        return "E-SARSA Agent"
+
+    def finalQ(self):
+        """
+        Expected SARSA agent final action-state for a single step update.
+
+        Returns
+        -------
+        E[Q(S',a)] for a single step update.
+        """
         Sp = self.history[-1][0]
-        # find the maximum Q(S',A')
         max_val = self.agent[Sp][0][0]
         for val in self.agent[Sp].values():
             if val[0] > max_val:
@@ -452,10 +590,35 @@ class expectedsarsaAgent(epsilonGreedyAgent):
         exp_prob = self.epsilon / len(self.agent[Sp].keys())
         expect = (1 - self.epsilon) * max_val + \
                  exp_prob * sum([x[0] for x in self.agent[Sp].values()])
-        self.agent[S][A][0] += self.alpha * (R + \
-                                    self.discount * expect - \
-                                    self.agent[S][A][0])
-        self.agent[S][A][1] += 1 # update the visit count
+        return expect
+
+class nStepExpectedSarsaAgent(nStepEpsilonGreedyAgent):
+    """
+    An agent that learns using the n-step expected SARSA scheme and
+    epsilson-greedy policy.
+    """
+
+    @staticmethod
+    def __str__():
+        return "n-E-SARSA Agent"
+
+    def finalQ(self):
+        """
+        Expected SARSA agent final action-state for a single step update.
+
+        Returns
+        -------
+        E[Q(S',a)] for a single step update.
+        """
+        Sp = self.history[self.update_step + self.n][0]
+        max_val = self.agent[Sp][0][0]
+        for val in self.agent[Sp].values():
+            if val[0] > max_val:
+                max_val = val[0]
+        exp_prob = self.epsilon / len(self.agent[Sp].keys())
+        expect = (1 - self.epsilon) * max_val + \
+                 exp_prob * sum([x[0] for x in self.agent[Sp].values()])
+        return expect
 
 # some immediate testing
 if __name__ == "__main__":
